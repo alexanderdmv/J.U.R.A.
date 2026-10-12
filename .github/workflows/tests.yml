@@ -1,0 +1,26 @@
+# Автоматическая проверка при каждой загрузке в GitHub: тесты на Windows и Linux, три версии Python.
+# Ставим только то, что нужно тестам (без тяжёлых библиотек голоса и браузера: в тестах они подменены).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install cryptography numpy
+      - run: python -m pip install -e . --no-deps
+      - run: python -m unittest discover -s tests
+      - run: python tests/leak_check.py

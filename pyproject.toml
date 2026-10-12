@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jura"
+version = "0.6.1"
+description = "J.U.R.A. — персональный ассистент"
+readme = "README.md"
+requires-python = ">=3.11"
+# Всё нужное ставится одной командой `pip install -e .` — при смене компьютера ничего выбирать не надо.
+# Тяжёлые части (голос, браузер) импортируются лениво: если одна не заработает, ядро продолжит работать.
+# Не ставится через pip и скачивается командой `python -m jura setup`: браузер Chromium и модель распознавания речи.
+dependencies = [
+    "cryptography>=42",
+    "numpy",
+    "onnx-asr[cpu,hub]",        # распознавание речи (GigaAM) на процессоре
+    "onnxruntime!=1.24.1",      # у версии 1.24.1 известны проблемы с onnx-asr
+    "sounddevice",              # микрофон
+    "playwright>=1.40",         # вход на сайты через браузер
+]
+
+[project.scripts]
+jura = "jura.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Необязательно: линтер. Настройка намеренно мягкая (в этой среде я его не запускал).
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E741"]  # имя Zone.O — осознанное

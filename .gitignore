@@ -1,0 +1,13 @@
+# окружение
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# данные J.U.R.A. — НИКОГДА не коммитить
+.jura/
+*.vault
+*.vault.tmp
+*.db
+.env
+*.jurabak

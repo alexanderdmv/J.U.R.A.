@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "env": {
+      "PYTHONPATH": "${workspaceFolder}/src"
+    }
+  },
+  "tasks": [
+    {
+      "label": "J.U.R.A.: запустить все тесты",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "J.U.R.A.: проверка утечек соединений",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "tests/leak_check.py"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "J.U.R.A.: оболочка (shell)",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-m",
+        "jura",
+        "shell"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "J.U.R.A.: проверить журнал событий",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-m",
+        "jura",
+        "verify-log"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
