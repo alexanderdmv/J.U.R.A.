@@ -29,21 +29,43 @@ function Find-Python {
     return $null
 }
 
+function Install-PythonDirect {
+    # clean Windows 10 often has no winget: take the official installer from python.org, per-user, no admin needed
+    $url = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
+    $exe = Join-Path $env:TEMP 'jura-python-setup.exe'
+    Write-Host "Downloading Python 3.12 from $url ..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'   # PowerShell 5.1 downloads very slowly with the progress bar
+    Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+    Write-Host 'Installing Python 3.12 (quiet, for the current user; usually a few minutes, up to 30 on a slow PC)...'
+    $log = Join-Path $env:TEMP 'jura-python-install.log'
+    # WaitForExit, not -Wait: in PowerShell 5.1 -Wait also waits for every child the installer leaves running and can hang forever
+    $p = Start-Process -FilePath $exe -ArgumentList '/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_test=0', 'Include_launcher=0', 'Include_doc=0', 'Include_tcltk=0', 'Include_dev=0', '/log', "`"$log`"" -PassThru
+    if (-not $p.WaitForExit(1800000)) { Write-Host "Python installer did not finish in 30 minutes, see $log"; return -2 }
+    Remove-Item $exe -ErrorAction SilentlyContinue
+    return $p.ExitCode
+}
+
 Write-Host 'J.U.R.A. - preparing: looking for Python 3.11+'
 $python = Find-Python
 if (-not $python) {
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Write-Host 'Python 3.11+ not found and winget (App Installer) is unavailable.'
-        Write-Host 'Download Python from https://www.python.org/downloads/ (tick 'Add python.exe to PATH') and run install.cmd again.'
-        exit 2
+    $viaWinget = $false
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host 'Python not found. Installing Python 3.12 via winget (Windows may ask for permission)...'
+        winget install --id Python.Python.3.12 --exact --silent --accept-package-agreements --accept-source-agreements
+        Refresh-Path
+        $python = Find-Python
+        $viaWinget = [bool]$python
     }
-    Write-Host 'Python not found. Installing Python 3.12 via winget (Windows may ask for permission)...'
-    winget install --id Python.Python.3.12 --exact --silent --accept-package-agreements --accept-source-agreements
-    Refresh-Path
-    $python = Find-Python
-    if (-not $python) {
-        Write-Host 'Python was installed but is not visible in this window. Close it and run install.cmd again.'
-        exit 3
+    if (-not $viaWinget) {
+        try { $code = Install-PythonDirect } catch { $code = -1; Write-Host "Download failed: $($_.Exception.Message)" }
+        Refresh-Path
+        $python = Find-Python
+        if (-not $python) {
+            Write-Host "Python could not be installed automatically (code $code)."
+            Write-Host 'Install it from https://www.python.org/downloads/ (tick Add python.exe to PATH) and run install.cmd again.'
+            exit 2
+        }
     }
 }
 Write-Host "Python: $python"

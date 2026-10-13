@@ -14,8 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from jura.adapters.voice.onnx_asr_stt import DEFAULT_MODEL, DEFAULT_QUANT, OnnxAsrStt
+from jura import machine
 from jura.adapters.voice.mic_sounddevice import SoundDeviceRecorder
+from jura.adapters.voice.onnx_asr_stt import DEFAULT_MODEL, DEFAULT_QUANT, OnnxAsrStt
 from jura.adapters.voice.piper_tts import DEFAULT_VOICE, PiperTts
 from jura.adapters.voice.windows_tts import WindowsSapiTts
 from jura.contracts.errors import JuraError, VoiceError
@@ -37,9 +38,8 @@ class VoiceStack:
 
 
 def models_dir(env=None) -> Path:
-    """Папка скачанных моделей (голоса, распознавание). На ноутбуке с маленьким диском C: её ставят на другой диск."""
-    env = os.environ if env is None else env
-    return Path(env.get("JURA_MODELS_DIR") or Path.home() / ".jura-models")
+    """Папка скачанных моделей (голоса, распознавание): настройка компьютера (machine.py), например D:/jura-models."""
+    return machine.models_dir(env)
 
 
 def build_voice_stack(env=None) -> VoiceStack:
@@ -49,8 +49,8 @@ def build_voice_stack(env=None) -> VoiceStack:
     is_real_env = env is None
     env = os.environ if env is None else env
     base = models_dir(env)
-    if is_real_env:  # модели распознавания качает huggingface_hub — пусть кладёт их рядом с голосами, а не на диск C:
-        os.environ.setdefault("HF_HOME", str(base / "hf"))
+    if is_real_env:  # модели распознавания качает huggingface_hub — всегда в папку моделей J.U.R.A., а не на диск C:
+        os.environ["HF_HOME"] = str(base / "hf")
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     device = env.get("JURA_MIC_DEVICE")
     quant = env.get("JURA_STT_QUANT", DEFAULT_QUANT)

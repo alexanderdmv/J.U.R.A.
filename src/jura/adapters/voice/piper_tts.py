@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from jura.adapters.voice.langmix import segments
+from jura.adapters.voice.onnx_asr_stt import import_hint
 from jura.contracts.errors import VoiceError
 
 DEFAULT_VOICE = "ru_RU-irina-medium"
@@ -49,8 +50,8 @@ class PiperTts:
             try:
                 import piper  # noqa: PLC0415 — тяжёлая часть, грузим только когда нужен голос
                 from piper.phonemize_espeak import EspeakPhonemizer  # noqa: PLC0415
-            except ImportError:
-                raise VoiceError("не установлен piper-tts. Выполни: pip install -e .") from None
+            except ImportError as exc:
+                raise VoiceError(import_hint("piper-tts", exc)) from None
             self._piper = piper
             self._phonemizer = self._phonemizer or EspeakPhonemizer()
         return self._piper

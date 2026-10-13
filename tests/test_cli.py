@@ -48,7 +48,9 @@ class CliBase(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.home = os.path.join(self.dir.name, "home")
         self.backups = os.path.join(self.dir.name, "backups")
-        for patcher in (patch.dict(os.environ, {"JURA_HOME": self.home, "JURA_BACKUP_DIR": self.backups}),
+        config = os.path.join(self.dir.name, "jura.local.json")  # не трогать настройки этого компьютера
+        for patcher in (patch.dict(os.environ, {"JURA_HOME": self.home, "JURA_BACKUP_DIR": self.backups,
+                                                "JURA_CONFIG": config}),
                         patch("jura.kernel.vault.DEFAULT_KDF_N", 2**10)):  # быстрый KDF только в тестах
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -228,7 +230,7 @@ class WorkflowTests(CliBase):
             os.environ.pop("JURA_BACKUP_DIR")
             rc, out = run(["backup"], [PW])
         self.assertEqual(rc, 1)
-        self.assertIn("JURA_BACKUP_DIR", out)
+        self.assertIn("config set backup_dir", out)
 
     # --- работа под паролем ---
     def test_run_with_stored_password_requires_passphrase_again(self):
@@ -337,9 +339,10 @@ class WorkflowTests(CliBase):
             calls.append(cmd)
             return type("R", (), {"returncode": 0, "stdout": "4096\n"})()
 
-        with patch("jura.cli_standalone.subprocess.run", fake_run), \
-                patch("jura.cli_standalone.build_voice_stack", return_value=healthy), \
-                patch("jura.cli_standalone._ollama", return_value="ollama"), \
+        with patch("jura.cli_setup.subprocess.run", fake_run), \
+                patch("jura.cli_setup.build_voice_stack", return_value=healthy), \
+                patch("jura.cli_setup._ollama", return_value="ollama"), \
+                patch("jura.cli_setup._start_ollama", return_value=True), \
                 patch("jura.voice._version", side_effect=lambda p: "1.0"):
             rc, out = run(["setup"])
         self.assertEqual(rc, 0, out)
@@ -351,23 +354,23 @@ class WorkflowTests(CliBase):
         self.assertIn("model add local-main local jura-gemma3", out)
 
     def test_local_model_goes_fully_to_the_gpu_only_when_it_fits(self):
-        from jura.cli_standalone import modelfile_text
+        from jura.cli_setup import modelfile_text
         self.assertIn("PARAMETER num_gpu 99", modelfile_text(4096))
         self.assertNotIn("num_gpu", modelfile_text(2048))
         self.assertIn("PARAMETER num_ctx 2048", modelfile_text(0))
 
     def test_setup_without_ollama_explains_what_to_install(self):
-        with patch("jura.cli_standalone._ollama", return_value=None):
+        with patch("jura.cli_setup._ollama", return_value=None):
             rc, out = run(["setup", "--skip-browser", "--skip-voice"])
         self.assertEqual(rc, 2)
         self.assertIn("Ollama не найдена", out)
 
     def test_setup_reports_failures_and_can_skip_parts(self):
-        with patch("jura.cli_standalone.subprocess.run", lambda cmd, **kw: type("R", (), {"returncode": 1})()):
+        with patch("jura.cli_setup.subprocess.run", lambda cmd, **kw: type("R", (), {"returncode": 1})()):
             rc, out = run(["setup", "--skip-voice", "--skip-llm"])
         self.assertEqual(rc, 2)
         self.assertIn("Не удалось установить Chromium", out)
-        with patch("jura.cli_standalone.subprocess.run", side_effect=AssertionError("не должен вызываться")):
+        with patch("jura.cli_setup.subprocess.run", side_effect=AssertionError("не должен вызываться")):
             self.assertEqual(run(["setup", "--skip-browser", "--skip-voice", "--skip-llm"])[0], 0)
 
     # --- голос ---
@@ -421,6 +424,37 @@ class WorkflowTests(CliBase):
             rc, out = run(["voice-check"])
         self.assertEqual(rc, 2)
         self.assertIn("не установлен", out)
+
+
+class MachineConfigCliTests(CliBase):
+    """ADR-016: J.U.R.A. сам помнит свои папки и модель; init подключает модель, которую подготовил setup."""
+
+    def test_config_set_show_unset(self):
+        target = os.path.join(self.dir.name, "модели")
+        rc, out = run(["config", "set", "models-dir", target])
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"models_dir   {target}   (файл)", out)
+        rc, out = run(["config", "unset", "models_dir"])
+        self.assertIn("(по умолчанию)", out)
+        rc, out = run(["config", "set", "models_dir", "относительный"])
+        self.assertEqual(rc, 1)
+
+    def test_init_connects_the_local_model_prepared_by_setup(self):
+        run(["config", "set", "local_model", "jura-gemma3"])
+        rc, out = run(["init"], [PW, PW], screen_code=True)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("Подключена локальная модель jura-gemma3", out)
+        self.assertIn("local-main  [local: jura-gemma3]", run(["model", "list"], [PW])[1])
+
+    def test_backup_folder_from_settings(self):
+        self.init_home()
+        backups = os.path.join(self.dir.name, "копии-из-настроек")
+        run(["config", "set", "backup_dir", backups])
+        with patch.dict(os.environ):
+            os.environ.pop("JURA_BACKUP_DIR")
+            rc, out = run(["backup"], [PW])
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(any(f.endswith(".jurabak") for f in os.listdir(backups)))
 
 
 if __name__ == "__main__":

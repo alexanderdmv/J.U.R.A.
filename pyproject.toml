@@ -13,6 +13,7 @@ requires-python = ">=3.11"
 # Не ставится через pip и скачивается командой `python -m jura setup`: браузер Chromium, модели речи, голос, локальная модель.
 dependencies = [
     "cryptography>=42",
+    "truststore>=0.9",          # сертификаты через Windows: на свежей системе Python иначе не открывает часть сайтов (ADR-016)
     "numpy",
     "onnx-asr[cpu,hub]",        # распознавание речи (Parakeet v3: ru/uk/cs/en; запасная — GigaAM) на процессоре
     "piper-tts>=1.4",           # синтез речи одним голосом на ru/uk/cs/en (ADR-015); GPL-3.0 — для личного проекта подходит

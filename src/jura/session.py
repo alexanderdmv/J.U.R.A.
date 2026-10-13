@@ -27,6 +27,7 @@ from jura.kernel import vault as vault_module
 from jura.kernel.credentials import CredentialBroker
 from jura.kernel.keyring import KeyringCipher
 from jura.kernel.policy import PolicyConfig
+from jura import machine
 from jura.lexicon import Lexicon
 from jura.model_registry import ModelRegistry
 from jura.runtime.dialogue import Dialogue, Reply
@@ -40,14 +41,14 @@ SITE_PREFIX = "site."
 
 
 def default_home() -> Path:
-    return Path(os.environ.get("JURA_HOME", Path.home() / ".jura"))
+    return machine.home()
 
 
 def backup_dir_from(option: str | None, home: Path) -> Path:
-    """Папка для копий: параметр --to или переменная JURA_BACKUP_DIR. Внутри данных J.U.R.A. — нельзя."""
-    raw = option or os.environ.get("JURA_BACKUP_DIR")
+    """Папка для копий: параметр --to или настройка компьютера (machine.py). Внутри данных J.U.R.A. — нельзя."""
+    raw = option or machine.get("backup_dir")
     if not raw:
-        raise JuraError("не задана папка для копий. Укажи --to ПАПКА или переменную окружения JURA_BACKUP_DIR "
+        raise JuraError("не задана папка для копий. Укажи --to ПАПКА или один раз: python -m jura config set backup_dir ПАПКА "
                         "(папка должна быть на ДРУГОМ физическом диске)")
     path = Path(raw).expanduser().resolve()
     if home.resolve() in (path, *path.parents):

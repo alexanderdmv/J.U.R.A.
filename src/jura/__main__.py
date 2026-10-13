@@ -17,7 +17,8 @@
     change-passphrase · new-recovery-code · vault-check-recovery
     backup-verify ФАЙЛ · restore ФАЙЛ --to ПАПКА
 
-Данные — в папке JURA_HOME (по умолчанию ~/.jura). Копии — в JURA_BACKUP_DIR (другой физический диск!).
+Где что лежит — настройки этого компьютера (jura.local.json рядом с проектом): python -m jura config
+    config set home|models_dir|backup_dir ПУТЬ   (по умолчанию данные — ~/.jura, модели — ~/.jura-models; копии — другой диск!)
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from jura import cli_standalone as cs
+from jura import cli_setup, cli_standalone as cs
 from jura.cli_shell import cmd_shell, run_session_command
 from jura.contracts.errors import JuraError, VaultError
 
@@ -54,7 +55,13 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--skip-browser", action="store_true", help="не скачивать Chromium")
     st.add_argument("--skip-voice", action="store_true", help="не скачивать модель речи и не проверять голос")
     st.add_argument("--skip-llm", action="store_true", help="не готовить локальную языковую модель в Ollama")
-    st.set_defaults(fn=cs.cmd_setup)
+    st.set_defaults(fn=cli_setup.cmd_setup)
+
+    cf = sub.add_parser("config", help="настройки этого компьютера: где данные, модели, копии")
+    cf.add_argument("action", nargs="?", choices=["show", "set", "unset"], default="show")
+    cf.add_argument("key", nargs="?")
+    cf.add_argument("value", nargs="?")
+    cf.set_defaults(fn=cli_setup.cmd_config)
 
     sub.add_parser("verify-log").set_defaults(fn=cs.cmd_verify_log)
     sub.add_parser("peek-raw").set_defaults(fn=cs.cmd_peek_raw)
@@ -83,9 +90,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _system_certificates() -> None:
+    """Проверять сертификаты сайтов средствами Windows (truststore). На свежей Windows Python иначе падает на github.com,
+    huggingface.co и др.: нужных корневых сертификатов ещё нет, а докачивать их умеет только сама Windows."""
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    _system_certificates()
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
         if argv and argv[0] in SESSION_COMMANDS:

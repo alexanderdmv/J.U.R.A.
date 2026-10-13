@@ -195,6 +195,12 @@ class SttAdapterTests(unittest.TestCase):
                 OnnxAsrStt().transcribe(pcm(0.5))
         self.assertIn("pip install -e .", str(cm.exception))
 
+    def test_missing_visual_cpp_runtime_is_not_reported_as_missing_package(self):
+        from jura.adapters.voice.onnx_asr_stt import import_hint
+        dll = ImportError("DLL load failed while importing onnxruntime_pybind11_state: The specified module could not be found.")
+        self.assertIn("Visual C++ Runtime", import_hint("onnx-asr", dll))
+        self.assertIn("pip install -e .", import_hint("onnx-asr", ImportError("No module named 'onnx_asr'")))
+
     def test_model_load_failure_is_explained(self):
         mod = types.ModuleType("onnx_asr")
         def boom(name, **kw): raise OSError("нет сети")

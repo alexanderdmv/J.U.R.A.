@@ -19,7 +19,8 @@
 | [011](0011-voice-stack.md) | Голосовой стек | Accepted; распознавание и синтез заменены в ADR-015 |
 | [012](0012-tool-results-and-credential-broker.md) | Метки результатов инструментов, брокер учётных данных | Accepted |
 | [013](0013-model-adapters.md) | Адаптеры моделей, локальная среда | Accepted (вживую не проверен) |
-| [014](0014-installer.md) | Установщик для нового компьютера | Accepted (на чистом Windows не проверен) |
-| [015](0015-multilingual-voice-dialogue.md) | Многоязычный голос (ru/uk/cs/en) и диалоговое ядро v0 | Accepted (проверен на ноутбуке без микрофона) |
+| [014](0014-installer.md) | Установщик для нового компьютера | Accepted; дополнен ADR-016 (без winget, VC++, настройки) |
+| [015](0015-multilingual-voice-dialogue.md) | Многоязычный голос (ru/uk/cs/en) и диалоговое ядро v0 | Accepted (проверен вживую, с микрофоном) |
+| [016](0016-machine-settings-and-bare-windows-installer.md) | Настройки компьютера (jura.local.json) и установка на голый Windows | Accepted (проверен в Windows Sandbox) |
 
 Контракты v1 замораживаются **после** walking skeleton. Черновики (Draft) можно менять; Accepted — только новым ADR.

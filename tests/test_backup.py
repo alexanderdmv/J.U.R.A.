@@ -45,13 +45,11 @@ class BackupTests(unittest.TestCase):
 
     def test_backup_dir_must_be_configured(self):
         import os
-        old = os.environ.pop("JURA_BACKUP_DIR", None)
-        try:
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"JURA_CONFIG": str(self.home / "нет-такого.json")}):
+            os.environ.pop("JURA_BACKUP_DIR", None)
             with self.assertRaises(JuraError):
                 backup_dir_from(None, self.home)
-        finally:
-            if old is not None:
-                os.environ["JURA_BACKUP_DIR"] = old
 
     def test_backup_refused_if_log_is_corrupted(self):
         self.session.app.db.execute("DROP TRIGGER events_no_update")

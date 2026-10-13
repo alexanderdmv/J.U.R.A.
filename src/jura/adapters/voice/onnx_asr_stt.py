@@ -16,6 +16,16 @@ from jura.contracts.voice import SAMPLE_RATE, Transcript
 
 DEFAULT_MODEL = "nemo-parakeet-tdt-0.6b-v3"
 DEFAULT_QUANT = "int8"  # в 4 раза меньше и быстрее на процессоре; на слух владельца разницы с полной нет
+VC_REDIST = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+
+def import_hint(package: str, exc: ImportError) -> str:
+    """Понятная причина, почему библиотека не загрузилась. На чистой Windows пакет стоит, но onnxruntime не находит
+    Visual C++ Runtime — и это совсем не «не установлен» (так было в Windows Sandbox)."""
+    if "DLL load failed" in str(exc):
+        return (f"{package} установлен, но не загружается: нет Microsoft Visual C++ Runtime. "
+                f"Поставь его (install.cmd сделает сам) или вручную: {VC_REDIST}")
+    return f"не установлен {package}. Выполни: pip install -e ."
 
 
 class OnnxAsrStt:
@@ -32,8 +42,8 @@ class OnnxAsrStt:
         if mod is None:
             try:
                 import onnx_asr as mod  # noqa: PLC0415 — необязательная зависимость
-            except ImportError:
-                raise VoiceError('не установлен onnx-asr. Выполни: pip install -e .') from None
+            except ImportError as exc:
+                raise VoiceError(import_hint("onnx-asr", exc)) from None
         t0 = time.perf_counter()
         try:
             kwargs = {"quantization": self._quant} if self._quant else {}
