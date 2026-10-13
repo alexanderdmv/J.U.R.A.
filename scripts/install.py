@@ -4,7 +4,7 @@
   1. проверяет Python 3.11+ (сам Python ставит install.cmd/bootstrap.ps1 — до этого скрипта он запуститься не может);
   2. создаёт .venv; 3. ставит проект (`pip install -e .`);
   4. ставит программы системы через winget: Git и Ollama (с твоего «да»);
-  5. `jura setup` (браузер Chromium и модель распознавания речи); 6. проверяет целостность файлов и тесты;
+  5. `jura setup` (браузер Chromium, распознавание речи, голос, локальная модель в Ollama); 6. проверяет файлы и тесты;
   7. данные: новое хранилище (`init`), восстановление из копии `.jurabak` или пропуск;
   8. папка копий (JURA_BACKUP_DIR); 9. связь с GitHub-репозиторием (без паролей и токенов).
 
@@ -51,6 +51,7 @@ class Installer:
         self.home = Path(home) if home else Path.home()
         self.python = python or sys.executable
         self.py_version = py_version or tuple(sys.version_info[:3])
+        self.child_env: dict[str, str] | None = None  # окружение для запускаемых команд, если шаги его дополнили
         self.log: list[str] = []
         self.results: list[tuple[str, str]] = []  # (шаг, ok/пропущен/ОШИБКА: ...)
 
@@ -77,7 +78,8 @@ class Installer:
         """Запуск команды. Код возврата пишется в журнал; вывод идёт на экран (stdout не перехватываем)."""
         shown = " ".join(str(c) for c in cmd)
         try:
-            proc = self.runner(cmd, cwd=str(cwd or self.root), check=False)
+            extra = {"env": self.child_env} if self.child_env else {}
+            proc = self.runner(cmd, cwd=str(cwd or self.root), check=False, **extra)
             code = int(getattr(proc, "returncode", 0))
         except FileNotFoundError:
             self.log.append(f"$ {shown}\n  -> не найдено")
@@ -123,7 +125,27 @@ class Installer:
         self.run([py, "-m", "pip", "install", "-e", "."])
         return "проект и все библиотеки установлены"
 
+    def models_location(self) -> str:
+        """Куда качать модели (голоса, распознавание, Ollama). Задаётся ДО установки Ollama, чтобы она сразу писала туда."""
+        d = getattr(self.args, "models_dir", None)
+        if not d:
+            return ""
+        path = Path(d)
+        if not path.is_absolute():
+            raise InstallError("папка моделей должна быть полным путём (например D:/jura-models)")
+        (path / "ollama").mkdir(parents=True, exist_ok=True)
+        values = {"JURA_MODELS_DIR": str(path), "OLLAMA_MODELS": str(path / "ollama")}
+        self.child_env = {**self.environ, **values}  # следующие шаги этого запуска (jura setup) увидят папку сразу
+        if self.is_windows:
+            for name, value in values.items():
+                self.run(["setx", name, value])
+        return f"модели — в {path}. "
+
     def system_software(self) -> str:
+        note = self.models_location()
+        return note + self._winget_packages()
+
+    def _winget_packages(self) -> str:
         wanted = [k for k in WINGET_PACKAGES if not getattr(self.args, "no_" + k, False)]
         missing = [k for k in wanted if not self.which(k)]
         if not missing:
@@ -150,7 +172,7 @@ class Installer:
         if self.args.skip_setup:
             return "пропущено (--skip-setup)"
         self.run([str(self.venv_python), "-m", "jura", "setup"])
-        return "браузер и модель речи готовы"
+        return "браузер, модели речи и голоса, локальная языковая модель готовы"
 
     def verify(self) -> str:
         py = str(self.venv_python)
@@ -244,6 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--restore", metavar="FILE", help="восстановить данные из копии .jurabak (нужен бумажный код)")
     p.add_argument("--github", metavar="URL", help="https-адрес репозитория для бэкапа кода")
     p.add_argument("--backup-dir", metavar="DIR", help="полный путь к папке копий (лучше другой диск)")
+    p.add_argument("--models-dir", metavar="DIR", help="полный путь к папке моделей (несколько ГБ; если на C: мало места)")
     return p
 
 

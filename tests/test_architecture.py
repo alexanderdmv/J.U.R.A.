@@ -38,7 +38,8 @@ def layer_of(path: Path):
 # файл → какие сторонние пакеты ему можно (все — необязательные, ставятся отдельно; ADR-011)
 OPTIONAL_DEPS = {
     "web_login.py": {"playwright"},
-    "gigaam_stt.py": {"onnx_asr", "numpy"},
+    "onnx_asr_stt.py": {"onnx_asr", "numpy"},
+    "piper_tts.py": {"piper", "numpy", "sounddevice"},   # ADR-015
     "mic_sounddevice.py": {"sounddevice"},
 }
 

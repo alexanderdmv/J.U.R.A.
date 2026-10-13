@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from jura.adapters.connectors import http_basic, web_login
 from jura.app import Jura, TaskResult
-from jura.contracts.errors import JuraError, VaultError, WrongCredentials
+from jura.contracts.errors import JuraError, NoModelAvailable, VaultError, WrongCredentials
 from jura.contracts.model import ModelRequest
 from jura.contracts.types import (
     Approval, AuthLevel, Device, DeviceTier, Envelope, Principal, PrincipalKind, TaskState, Trust, Zone,
@@ -27,7 +27,9 @@ from jura.kernel import vault as vault_module
 from jura.kernel.credentials import CredentialBroker
 from jura.kernel.keyring import KeyringCipher
 from jura.kernel.policy import PolicyConfig
+from jura.lexicon import Lexicon
 from jura.model_registry import ModelRegistry
+from jura.runtime.dialogue import Dialogue, Reply
 from jura.kernel.vault import Vault
 
 OWNER = "user:owner"
@@ -80,7 +82,9 @@ class Session:
     vault: Vault
     app: Jura
     registry: ModelRegistry
+    lexicon: Lexicon
     model_errors: dict[str, str] = field(default_factory=dict)
+    _dialogue: Dialogue | None = None
 
     # --- создание и открытие ---
     @classmethod
@@ -118,7 +122,7 @@ class Session:
                 + web_login.make_tools(broker.getter_for("web.login", web_login.NAME_PATTERN), browser_driver)):
             app.registry.register(spec, handler)
         registry = ModelRegistry(vault, broker, allow_insecure_http)
-        session = cls(home, vault, app, registry)
+        session = cls(home, vault, app, registry, Lexicon(vault))
         session.apply_models()
         return session
 
@@ -265,6 +269,40 @@ class Session:
             raise JuraError(f"модели '{name}' нет (список: model list)")
         zone = Zone.P if entry.is_local else Zone.O  # проверочный текст открытый; локальную проверяем как приватную
         return self.ask("Ответь одним словом: ок", zone, only=name)
+
+    # --- разговор (ADR-015) ---
+    @property
+    def dialogue(self) -> Dialogue:
+        """Один разговор на сессию: история живёт в оперативной памяти и исчезает при выходе."""
+        if self._dialogue is None:
+            self._dialogue = Dialogue(lambda req: self.app.models.complete(req), lexicon=self.lexicon.entries)
+        return self._dialogue
+
+    def chat(self, text: str) -> Reply:
+        """Реплика владельца → ответ. Разговор — зона P: роутер отдаёт его только локальной модели."""
+        if not text.strip():
+            raise JuraError("пустая реплика")
+        try:
+            return self.dialogue.reply(text)
+        except NoModelAvailable as exc:
+            raise JuraError(f"{exc}. Подключи локальную модель: model add local-main local jura-gemma3 --context 2048 "
+                            "(подробности: docs/VOICE.md)") from None
+
+    def warm_up_dialogue(self) -> None:
+        """Заранее загружает локальную модель в видеопамять: первая реплика иначе ждёт ~10–15 с (замер на ноутбуке).
+        В историю разговора ничего не попадает; ошибки здесь не важны — их покажет первая настоящая реплика."""
+        try:
+            self.app.models.complete(ModelRequest("ок", Zone.P, prefer="local"))
+        except JuraError:
+            pass
+
+    def lexicon_add(self, term: str, meaning: str, also: tuple[str, ...] = ()) -> None:
+        self.lexicon.add(term, meaning, also)
+        self.app.log.append("lexicon.changed", OWNER, {"added": 1})  # само слово в журнал не пишем
+
+    def lexicon_remove(self, term: str) -> None:
+        self.lexicon.remove(term)
+        self.app.log.append("lexicon.changed", OWNER, {"removed": 1})
 
     # --- ключи: смена пароля и бумажного кода ---
     def change_passphrase(self, new_passphrase: str) -> None:

@@ -32,6 +32,19 @@ class ModelRequest:
     min_context: int = 0
     prefer: str = "quality"     # "quality" | "cost" | "local"
     only: str | None = None     # выбрать модель с этим именем; правила зон и возможностей при этом всё равно действуют
+    # Диалог (ADR-015): инструкция модели и прошлые реплики. Их зона входит в `zone` — роутер смотрит только на неё.
+    system: str = ""
+    history: tuple[Turn, ...] = ()
+
+    def messages(self) -> list[dict[str, str]]:
+        """История + текущий запрос в общем виде {role: user|assistant, content}; адаптеры переводят в формат вендора."""
+        return [{"role": t.role, "content": t.text} for t in self.history] + [{"role": "user", "content": self.prompt}]
+
+
+@dataclass(frozen=True)
+class Turn:
+    role: str                   # "user" | "assistant"
+    text: str
 
 
 @dataclass(frozen=True)

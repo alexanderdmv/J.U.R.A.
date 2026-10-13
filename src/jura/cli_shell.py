@@ -26,6 +26,9 @@ SHELL_HELP = """Команды:
   backup-list [--to ПАПКА]
   model list|add|remove|discover|test  модели (облачные и локальные), подробности: model
   ask [--zone O|P|S1] [--model ИМЯ] ТЕКСТ   спросить модель; P и S1 — только локальные, облако — только для открытых (O)
+  talk [--typed] [--mute]             разговор голосом: Enter — говорить, Enter — закончить; «стоп» — выход
+  chat [ТЕКСТ] | chat --reset         разговор текстом (тот же собеседник, что в talk); --reset — забыть разговор
+  lexicon list | add СЛОВО = ЗНАЧЕНИЕ [--also ВАРИАНТ,…] | remove СЛОВО   личный словарь: сленг, свои словечки
   tools                               что умеет J.U.R.A. и что включено
   policy list|enable ВОЗМОЖНОСТЬ|disable ВОЗМОЖНОСТЬ   разрешить/запретить (спросит пароль ещё раз)
   run ИНСТРУМЕНТ ключ=значение …      выполнить инструмент (рискованное — после подтверждения;
@@ -185,6 +188,65 @@ def _ask(session: Session, rest: list[str], out) -> None:
         f"токены {res.tokens_in}→{res.tokens_out}, {res.seconds:.1f} с")
 
 
+def _chat(session: Session, rest: list[str], out) -> None:
+    if rest == ["--reset"]:
+        session.dialogue.reset()
+        out("✓ Разговор начат заново (прошлые реплики забыты).")
+        return
+    if rest:
+        _print_reply(session.chat(" ".join(rest)), out)
+        return
+    out("Разговор текстом. Пустая строка или «exit» — выход. Голосом: talk")
+    while True:
+        try:
+            line = input("ты> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            out("")
+            return
+        if line in ("", "exit", "quit"):
+            return
+        try:
+            _print_reply(session.chat(line), out)
+        except JuraError as exc:
+            out(f"✗ {exc}")
+
+
+def _print_reply(reply, out) -> None:
+    out(f"J.U.R.A.: {reply.text}")
+    out(f"   ({reply.model}, токены {reply.tokens_in}→{reply.tokens_out}, {reply.seconds:.1f} с)")
+
+
+def _talk(session: Session, rest: list[str], out) -> None:
+    from jura.voice import build_voice_stack, talk_loop  # голосовые библиотеки грузим, только когда нужен голос
+    unknown = set(rest) - {"--typed", "--mute"}
+    if unknown:
+        raise JuraError("использование: talk [--typed] [--mute]")
+    n = talk_loop(session.chat, build_voice_stack(), out=out, typed="--typed" in rest, mute="--mute" in rest,
+                  warm_up=session.warm_up_dialogue)
+    out(f"Разговор окончен, ответов: {n}.")
+
+
+def _lexicon(session: Session, rest: list[str], out) -> None:
+    sub, args = _sub(rest)
+    if sub == "list" and not args:
+        entries = session.lexicon.entries()
+        for e in sorted(entries, key=lambda e: e.term.lower()):
+            out(f"{e.term} — {e.meaning}" + (f"   (звучит и как: {', '.join(e.also)})" if e.also else ""))
+        if not entries:
+            out("(словарь пуст) Добавить: lexicon add СЛОВО = ЗНАЧЕНИЕ [--also ВАРИАНТ,ВАРИАНТ]")
+    elif sub == "add" and "=" in " ".join(args):
+        also, args = _pop_option(args, "--also")
+        term, meaning = " ".join(args).split("=", 1)
+        session.lexicon_add(term, meaning, tuple((also or "").split(",")))
+        out("✓ Записано в словарь (хранится зашифрованным).")
+    elif sub == "remove" and args:
+        session.lexicon_remove(" ".join(args))
+        out("✓ Удалено из словаря.")
+    else:
+        raise JuraError("использование: lexicon list | lexicon add СЛОВО = ЗНАЧЕНИЕ [--also ВАРИАНТ,ВАРИАНТ] | "
+                        "lexicon remove СЛОВО")
+
+
 def _backup(session: Session, rest: list[str], out) -> None:
     to, rest = _pop_option(rest, "--to")
     keep, rest = _pop_option(rest, "--keep")
@@ -320,6 +382,7 @@ COMMANDS = {
     "help": _help, "status": _status, "secret": _secret, "memory": _memory, "backup": _backup,
     "backup-list": _backup_list, "leak-check": _leak_check, "tools": _tools, "policy": _policy,
     "site": _site, "run": _run, "verify-log": _verify_log, "model": _model, "ask": _ask,
+    "chat": _chat, "talk": _talk, "lexicon": _lexicon,
 }
 
 

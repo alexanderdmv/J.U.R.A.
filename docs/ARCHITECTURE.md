@@ -23,7 +23,7 @@ contracts       ─►  (ничего)
 | 01/03 | Task State Machine | `kernel/tasks.py` | ✅ |
 | 01 | Policy Engine | `kernel/policy.py` | ✅ (политика задана в коде) |
 | 01/04 | Tool Port (PEP) | `kernel/tools.py` | ✅ |
-| 01 | Model Port + Router | `contracts/model.py`, `runtime/router.py` | ✅ (реальных моделей пока нет) |
+| 01 | Model Port + Router | `contracts/model.py`, `runtime/router.py`, `adapters/models/` | ✅ Claude, OpenAI, Gemini, локальная (Ollama) |
 | 01/05 | Memory Port | `contracts/memory.py`, `adapters/memory/` | ✅ базово (поиск по словам) |
 | 03 | Fast path | `app.py: execute_fast` | ✅ |
 | 03 | Full path (Intent → Plan → Verify) | правила в `tasks.py` | ⏳ логики агентов нет |
@@ -36,7 +36,8 @@ contracts       ─►  (ничего)
 | 09 | Шифрование данных на диске (журнал, задачи, память) | `kernel/crypto.py`, `kernel/keyring.py`, `contracts/crypto.py` | ✅ (ADR-008) |
 | 06 | Резервные копии + восстановление | `kernel/backup.py` | ✅ локально; облако ⏳ |
 | — | Сессия (разблокировка, команды) | `session.py`, `__main__.py` | ✅ |
-| 10 | Голос: запись, распознавание (GigaAM), синтез (SAPI) | `voice.py`, `adapters/voice/` | ✅ вход/выход; ⏳ ответы по смыслу, слово-активатор |
+| 10 | Голос: запись, распознавание (Parakeet v3, ru/uk/cs/en), синтез одним голосом (Piper + `langmix`) | `voice.py`, `adapters/voice/` | ✅ разговор (`talk`); ⏳ VAD, слово-активатор, перебивание |
+| 03 | Диалог (Runtime): реплика → модель, история, словарь | `runtime/dialogue.py`, `lexicon.py`, `session.py` | ✅ v0, без инструментов |
 | 11 | Finance Enclave | — | ⏳ Phase 7 |
 | 06 | Узлы, протокол, mTLS, Face ID | — | ⏳ Phase 2–3 |
 

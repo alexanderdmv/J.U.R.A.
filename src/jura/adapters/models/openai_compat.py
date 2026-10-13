@@ -51,7 +51,8 @@ class OpenAICompatModel:
         data = request_json("POST", f"{self._base}/chat/completions", headers=headers, secrets=secrets,
                             timeout=self._timeout,
                             body={"model": self._model, self._token_param: self._max_output,
-                                  "messages": [{"role": "user", "content": request.prompt}]})
+                                  "messages": ([{"role": "system", "content": request.system}] if request.system else [])
+                                  + request.messages()})
         try:
             choice = data["choices"][0]
             text = choice["message"].get("content") or ""

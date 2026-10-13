@@ -1,8 +1,8 @@
 """Голосовой контур: сборка стека, «послушать», «эхо» и диагностика `voice-check`.
 
-Сейчас это вход и выход без «мозга»: услышал → показал текст → (по желанию) запомнил или проговорил обратно.
-Когда появится диалоговое ядро, текст пойдёт в него по тому же пути, что и набранный с клавиатуры
-(политики, подтверждения, журнал). Голос НЕ подтверждает рискованные действия.
+Распознавание — Parakeet v3 (ru/uk/cs/en, язык определяет сама), синтез — один голос Piper на всех четырёх языках (ADR-015).
+Разговор с ответами по смыслу — `talk` в оболочке (`runtime/dialogue.py`). Голос НЕ подтверждает рискованные действия.
+Модели лежат в JURA_MODELS_DIR (по умолчанию ~/.jura-models): там piper/ (голоса) и hf/ (модели распознавания).
 """
 
 from __future__ import annotations
@@ -11,10 +11,12 @@ import importlib.metadata
 import os
 import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
-from jura.adapters.voice.gigaam_stt import DEFAULT_MODEL, GigaAMStt
+from jura.adapters.voice.onnx_asr_stt import DEFAULT_MODEL, DEFAULT_QUANT, OnnxAsrStt
 from jura.adapters.voice.mic_sounddevice import SoundDeviceRecorder
+from jura.adapters.voice.piper_tts import DEFAULT_VOICE, PiperTts
 from jura.adapters.voice.windows_tts import WindowsSapiTts
 from jura.contracts.errors import JuraError, VoiceError
 from jura.contracts.voice import (
@@ -23,7 +25,7 @@ from jura.contracts.voice import (
 
 MIN_SECONDS = 0.3
 SILENCE_PEAK = 0.01
-STOP_WORDS = ("стоп", "хватит", "закончить")
+STOP_WORDS = ("стоп", "хватит", "закончить", "досить", "вистачить", "stop", "enough", "konec", "dost")
 
 
 @dataclass
@@ -33,15 +35,33 @@ class VoiceStack:
     tts: TextToSpeech
 
 
+def models_dir(env=None) -> Path:
+    """Папка скачанных моделей (голоса, распознавание). На ноутбуке с маленьким диском C: её ставят на другой диск."""
+    env = os.environ if env is None else env
+    return Path(env.get("JURA_MODELS_DIR") or Path.home() / ".jura-models")
+
+
 def build_voice_stack(env=None) -> VoiceStack:
     """Рабочий стек. Настройки — переменными окружения (все необязательные):
-    JURA_STT_MODEL, JURA_STT_QUANT (например int8), JURA_MIC_DEVICE (номер из voice-check), JURA_TTS_VOICE, JURA_TTS_RATE (-10..10)."""
+    JURA_MODELS_DIR, JURA_STT_MODEL, JURA_STT_QUANT (по умолчанию int8; «none» — полная), JURA_MIC_DEVICE (номер из voice-check),
+    JURA_TTS (piper | windows), JURA_TTS_VOICE (имя голоса), JURA_TTS_SPEED (1.0 — обычная скорость)."""
+    is_real_env = env is None
     env = os.environ if env is None else env
+    base = models_dir(env)
+    if is_real_env:  # модели распознавания качает huggingface_hub — пусть кладёт их рядом с голосами, а не на диск C:
+        os.environ.setdefault("HF_HOME", str(base / "hf"))
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     device = env.get("JURA_MIC_DEVICE")
+    quant = env.get("JURA_STT_QUANT", DEFAULT_QUANT)
+    if env.get("JURA_TTS", "piper") == "windows":
+        tts = WindowsSapiTts(env.get("JURA_TTS_VOICE") or None, int(env.get("JURA_TTS_RATE", "0") or 0))
+    else:
+        tts = PiperTts(base / "piper", env.get("JURA_TTS_VOICE") or DEFAULT_VOICE,
+                       speed=float(env.get("JURA_TTS_SPEED", "1") or 1))
     return VoiceStack(
         recorder=SoundDeviceRecorder(device=int(device) if device and device.isdigit() else device or None),
-        stt=GigaAMStt(env.get("JURA_STT_MODEL", DEFAULT_MODEL), env.get("JURA_STT_QUANT") or None),
-        tts=WindowsSapiTts(env.get("JURA_TTS_VOICE") or None, int(env.get("JURA_TTS_RATE", "0") or 0)),
+        stt=OnnxAsrStt(env.get("JURA_STT_MODEL", DEFAULT_MODEL), None if quant.lower() == "none" else quant),
+        tts=tts,
     )
 
 
@@ -100,6 +120,55 @@ def echo_loop(stack: VoiceStack, *, input_fn: Callable[[str], str] | None = None
         spoken += 1
 
 
+def talk_loop(reply_fn: Callable[[str], object], stack: VoiceStack, *, input_fn: Callable[[str], str] | None = None,
+              out: Callable[[str], None] = print, typed: bool = False, mute: bool = False,
+              warm_up: Callable[[], None] | None = None) -> int:
+    """Разговор: сказал → распознал → ответ модели → ответ голосом. «Стоп» (на любом из языков) — выход.
+    typed=True — реплики набираются с клавиатуры (ответ всё равно голосом); mute=True — без озвучки.
+    reply_fn возвращает объект с полями text, spoken, model, seconds (runtime.dialogue.Reply). Возвращает число ответов."""
+    ask = input_fn or input
+    say = (lambda text: None) if mute else stack.tts.speak
+    out("Загружаю распознавание и голос…")
+    if not typed:
+        loader = getattr(stack.stt, "load", None)
+        if loader:
+            loader()
+    getattr(stack.tts, "load", lambda: None)()
+    if warm_up:
+        warm_up()
+    out("Готово. Говори, J.U.R.A. ответит. Для выхода скажи «стоп».\n")
+    answered = 0
+    while True:
+        try:
+            if typed:
+                text = ask("ты> ").strip()
+            else:
+                heard = listen_once(stack, input_fn=input_fn, out=out)
+                text = heard.text.strip()
+                out(f"ты: {text}" if text else "(ничего не распознано)")
+        except VoiceError as exc:
+            out(f"✗ {exc}")
+            return answered
+        except (EOFError, KeyboardInterrupt):
+            return answered
+        if not text:
+            continue
+        if text.lower().strip(" .!?,") in STOP_WORDS:
+            say("Окей, до связи.")
+            return answered
+        try:
+            reply = reply_fn(text)
+        except JuraError as exc:
+            out(f"✗ {exc}")
+            continue
+        out(f"J.U.R.A.: {reply.text}\n   ({reply.model}, {reply.seconds:.1f} с)")
+        try:
+            say(reply.spoken)
+        except VoiceError as exc:
+            out(f"⚠ не смог озвучить: {exc}")
+        answered += 1
+
+
 # ----------------------------------------------------------------- диагностика ---
 def _version(pkg: str) -> str | None:
     try:
@@ -121,8 +190,8 @@ def diagnose(stack: VoiceStack, out: Callable[[str], None] = print) -> bool:
             ok = ok and not fatal
 
     out("Проверка голосового контура (всё работает локально)\n")
-    for pkg, hint in (("numpy", ""), ("onnxruntime", ""), ("onnx-asr", ' → pip install -e ".[voice]"'),
-                      ("sounddevice", ' → pip install -e ".[voice]"')):
+    for pkg, hint in (("numpy", ""), ("onnxruntime", ""), ("onnx-asr", " → pip install -e ."),
+                      ("sounddevice", " → pip install -e ."), ("piper-tts", " → pip install -e .")):
         v = _version(pkg)
         if v is None:
             out(f"✗ пакет {pkg}: не установлен{hint}")
@@ -133,9 +202,16 @@ def diagnose(stack: VoiceStack, out: Callable[[str], None] = print) -> bool:
             out(f"✓ пакет {pkg}: {v}")
 
     check("микрофоны", lambda: "; ".join(stack.recorder.devices()) or "не найдено ни одного устройства ввода")
-    check("голоса синтеза речи (Windows)", lambda: (
-        "; ".join(stack.tts.voices()) or "нет") + ("" if any("ru-RU" in v for v in stack.tts.voices())
-                                                   else "  ⚠ русского голоса нет — речь будет с акцентом (позже: Piper)"), fatal=False)
+    if isinstance(stack.tts, PiperTts):
+        def piper_voice() -> str:
+            stack.tts.load()
+            return (f"{stack.tts.voice_name} (родной язык {stack.tts.base_lang}; остальные — тем же голосом); "
+                    f"скачано: {', '.join(stack.tts.voices())}")
+        check("голос синтеза речи (Piper)", piper_voice)
+    else:
+        check("голоса синтеза речи (Windows)", lambda: (
+            "; ".join(stack.tts.voices()) or "нет") + ("" if any("ru-RU" in v for v in stack.tts.voices())
+                                                       else "  ⚠ русского голоса нет — речь будет с акцентом"), fatal=False)
 
     def load_and_try() -> str:
         loader = getattr(stack.stt, "load", None)

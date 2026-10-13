@@ -37,9 +37,13 @@ class GeminiModel:
     def complete(self, request: ModelRequest) -> ModelResponse:
         key = get_key(self._get_key, KEY_HINT)
         url = f"{self._base}/models/{urllib.parse.quote(self._model, safe='')}:generateContent"
+        contents = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+                    for m in request.messages()]
+        body = {"contents": contents, "generationConfig": {"maxOutputTokens": self._max_output}}
+        if request.system:
+            body["systemInstruction"] = {"parts": [{"text": request.system}]}
         data = request_json("POST", url, headers={"x-goog-api-key": key}, secrets=(key,), timeout=self._timeout,
-                            body={"contents": [{"role": "user", "parts": [{"text": request.prompt}]}],
-                                  "generationConfig": {"maxOutputTokens": self._max_output}})
+                            body=body)
         candidates = data.get("candidates") or []
         if not candidates:
             reason = (data.get("promptFeedback") or {}).get("blockReason", "нет вариантов ответа")

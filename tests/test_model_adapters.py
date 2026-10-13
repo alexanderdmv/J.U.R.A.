@@ -12,7 +12,7 @@ from jura.adapters.models.anthropic import AnthropicModel
 from jura.adapters.models.gemini import GeminiModel
 from jura.adapters.models.openai_compat import OpenAICompatModel
 from jura.contracts.errors import ModelError, NoModelAvailable, VaultError, ZoneViolation
-from jura.contracts.model import ModelRequest
+from jura.contracts.model import ModelRequest, Turn
 from jura.contracts.types import Zone
 from jura.runtime.router import ModelRouter
 
@@ -281,6 +281,41 @@ class RouterWithRealAdaptersTests(ServerCase):
 
     def test_fake_model_is_available_only_to_tests(self):
         self.assertEqual(FakeModel("x").capabilities.name, "x")
+
+
+class DialogueFormatTests(ServerCase):
+    """Инструкция и история разговора (ADR-015) уходят в том виде, который описан у каждого провайдера."""
+
+    def dialog_req(self, zone=Zone.O):
+        return req(zone, prompt="а теперь?", system="Отвечай коротко.",
+                   history=(Turn("user", "привет"), Turn("assistant", "здорово")))
+
+    def test_anthropic_puts_instruction_in_system(self):
+        server, seen = self.serve("anthropic")
+        AnthropicModel("claude-test", key, base_url=base(server), allow_insecure_http=True).complete(self.dialog_req())
+        body = seen[0]["body"]
+        self.assertEqual(body["system"], "Отвечай коротко.")
+        self.assertEqual(body["messages"], [{"role": "user", "content": "привет"}, {"role": "assistant", "content": "здорово"},
+                                            {"role": "user", "content": "а теперь?"}])
+
+    def test_openai_compatible_puts_instruction_first(self):
+        server, seen = self.serve("openai")
+        OpenAICompatModel("qwen-test", base_url=base(server, "/v1"), local=True).complete(self.dialog_req(Zone.P))
+        self.assertEqual(seen[0]["body"]["messages"], [
+            {"role": "system", "content": "Отвечай коротко."}, {"role": "user", "content": "привет"},
+            {"role": "assistant", "content": "здорово"}, {"role": "user", "content": "а теперь?"}])
+
+    def test_gemini_uses_system_instruction_and_model_role(self):
+        server, seen = self.serve("gemini")
+        GeminiModel("gemini-test", key, base_url=base(server, "/v1beta"), allow_insecure_http=True).complete(self.dialog_req())
+        body = seen[0]["body"]
+        self.assertEqual(body["systemInstruction"], {"parts": [{"text": "Отвечай коротко."}]})
+        self.assertEqual([c["role"] for c in body["contents"]], ["user", "model", "user"])
+
+    def test_plain_request_is_unchanged(self):
+        server, seen = self.serve("openai")
+        OpenAICompatModel("qwen-test", base_url=base(server, "/v1"), local=True).complete(req(Zone.P))
+        self.assertEqual(seen[0]["body"]["messages"], [{"role": "user", "content": PROMPT}])
 
 
 if __name__ == "__main__":

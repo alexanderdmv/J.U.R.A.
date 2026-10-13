@@ -8,7 +8,7 @@ import wave
 from array import array
 from unittest.mock import patch
 
-from jura.adapters.voice.gigaam_stt import GigaAMStt
+from jura.adapters.voice.onnx_asr_stt import DEFAULT_MODEL, OnnxAsrStt
 from jura.adapters.voice.mic_sounddevice import SoundDeviceRecorder
 from jura.adapters.voice.windows_tts import SPEAK_SCRIPT, WindowsSapiTts
 from jura.contracts.errors import VoiceError
@@ -159,18 +159,19 @@ class SttAdapterTests(unittest.TestCase):
     def test_converts_pcm_to_float32_in_range_and_returns_transcript(self):
         import numpy as np
         mod = self.fake_module("  привет мир  ")
-        stt = GigaAMStt(onnx_asr_module=mod)
+        stt = OnnxAsrStt(onnx_asr_module=mod)
         res = stt.transcribe(array("h", [0, 16384, -32768]).tobytes() + pcm(0.5))
         wave_arr, rate = mod.received[0]
         self.assertEqual(wave_arr.dtype, np.float32)
         self.assertEqual(list(wave_arr[:3]), [0.0, 0.5, -1.0])
         self.assertEqual(rate, 16000)
         self.assertEqual(res.text, "привет мир")
-        self.assertEqual(res.model, "gigaam-v3-rnnt")
+        self.assertEqual(res.model, DEFAULT_MODEL)
+        self.assertEqual(mod.loaded, [(DEFAULT_MODEL, {"quantization": "int8"})])  # по умолчанию — быстрый int8
 
     def test_model_is_loaded_once_and_options_are_passed(self):
         mod = self.fake_module()
-        stt = GigaAMStt("gigaam-v3-e2e-rnnt", quantization="int8", onnx_asr_module=mod)
+        stt = OnnxAsrStt("gigaam-v3-e2e-rnnt", quantization="int8", onnx_asr_module=mod)
         stt.transcribe(pcm(0.5)); stt.transcribe(pcm(0.5))
         self.assertEqual(mod.loaded, [("gigaam-v3-e2e-rnnt", {"quantization": "int8"})])
 
@@ -179,10 +180,10 @@ class SttAdapterTests(unittest.TestCase):
         class Model:
             def recognize(self, wave): return "ок"
         mod.load_model = lambda name, **kw: Model()
-        self.assertEqual(GigaAMStt(onnx_asr_module=mod).transcribe(pcm(0.5)).text, "ок")
+        self.assertEqual(OnnxAsrStt(onnx_asr_module=mod).transcribe(pcm(0.5)).text, "ок")
 
     def test_wrong_rate_and_empty_audio(self):
-        stt = GigaAMStt(onnx_asr_module=self.fake_module())
+        stt = OnnxAsrStt(onnx_asr_module=self.fake_module())
         with self.assertRaises(VoiceError):
             stt.transcribe(pcm(0.5), sample_rate=44100)
         with self.assertRaises(VoiceError):
@@ -191,15 +192,15 @@ class SttAdapterTests(unittest.TestCase):
     def test_missing_library_gives_install_hint(self):
         with patch.dict(sys.modules, {"onnx_asr": None}):
             with self.assertRaises(VoiceError) as cm:
-                GigaAMStt().transcribe(pcm(0.5))
-        self.assertIn('pip install -e ".[voice]"', str(cm.exception))
+                OnnxAsrStt().transcribe(pcm(0.5))
+        self.assertIn("pip install -e .", str(cm.exception))
 
     def test_model_load_failure_is_explained(self):
         mod = types.ModuleType("onnx_asr")
         def boom(name, **kw): raise OSError("нет сети")
         mod.load_model = boom
         with self.assertRaises(VoiceError) as cm:
-            GigaAMStt(onnx_asr_module=mod).transcribe(pcm(0.5))
+            OnnxAsrStt(onnx_asr_module=mod).transcribe(pcm(0.5))
         self.assertIn("интернет", str(cm.exception))
 
 
@@ -251,7 +252,7 @@ class RecorderTests(unittest.TestCase):
         with patch.dict(sys.modules, {"sounddevice": None}):
             with self.assertRaises(VoiceError) as cm:
                 SoundDeviceRecorder().devices()
-        self.assertIn('pip install -e ".[voice]"', str(cm.exception))
+        self.assertIn("pip install -e .", str(cm.exception))
 
 
 class PortAudioMessageTests(unittest.TestCase):

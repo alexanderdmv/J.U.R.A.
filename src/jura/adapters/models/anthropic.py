@@ -36,9 +36,11 @@ class AnthropicModel:
 
     def complete(self, request: ModelRequest) -> ModelResponse:
         key = get_key(self._get_key, KEY_HINT)
+        body = {"model": self._model, "max_tokens": self._max_output, "messages": request.messages()}
+        if request.system:
+            body["system"] = request.system
         data = request_json("POST", f"{self._base}/v1/messages", headers=_headers(key), timeout=self._timeout,
-                            secrets=(key,), body={"model": self._model, "max_tokens": self._max_output,
-                                                  "messages": [{"role": "user", "content": request.prompt}]})
+                            secrets=(key,), body=body)
         blocks = data.get("content")
         if not isinstance(blocks, list):
             raise ModelError("неожиданный ответ сервиса (нет списка content)")

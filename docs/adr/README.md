@@ -16,9 +16,10 @@
 | [008](0008-key-hierarchy-and-encryption.md) | Иерархия ключей, шифрование данных, копии | Accepted |
 | 009 | Версионирование событий (upcasting) | Planned |
 | 010 | Трейсы и опыт: что логируем с учётом зон | Planned (Phase 1) |
-| [011](0011-voice-stack.md) | Голосовой стек | Accepted (вживую не проверен) |
+| [011](0011-voice-stack.md) | Голосовой стек | Accepted; распознавание и синтез заменены в ADR-015 |
 | [012](0012-tool-results-and-credential-broker.md) | Метки результатов инструментов, брокер учётных данных | Accepted |
 | [013](0013-model-adapters.md) | Адаптеры моделей, локальная среда | Accepted (вживую не проверен) |
 | [014](0014-installer.md) | Установщик для нового компьютера | Accepted (на чистом Windows не проверен) |
+| [015](0015-multilingual-voice-dialogue.md) | Многоязычный голос (ru/uk/cs/en) и диалоговое ядро v0 | Accepted (проверен на ноутбуке без микрофона) |
 
 Контракты v1 замораживаются **после** walking skeleton. Черновики (Draft) можно менять; Accepted — только новым ADR.

@@ -14,9 +14,11 @@ import install  # noqa: E402
 class FakeRunner:
     def __init__(self, fail=(), create_venv=True, root=None):
         self.calls, self.fail, self.create_venv, self.root = [], fail, create_venv, root
+        self.envs = []
 
-    def __call__(self, cmd, cwd=None, check=False):
+    def __call__(self, cmd, cwd=None, check=False, env=None):
         self.calls.append([str(c) for c in cmd])
+        self.envs.append(env)
         if self.create_venv and "venv" in cmd and self.root:
             py = Path(self.root) / ".venv" / "Scripts" / "python.exe"
             py.parent.mkdir(parents=True, exist_ok=True)
@@ -27,7 +29,7 @@ class FakeRunner:
 
 def args(**kw):
     base = dict(yes=False, no_git=False, no_ollama=False, skip_setup=False, skip_tests=False, restore=None, github=None,
-                backup_dir=None)
+                backup_dir=None, models_dir=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -126,6 +128,20 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(inst2.main(), 0)
         self.assertTrue(d.is_dir())
         self.assertTrue(any(c[:2] == ["setx", "JURA_BACKUP_DIR"] for c in runner2.calls))
+
+    def test_models_dir_is_set_before_ollama_and_passed_to_setup(self):
+        d = Path(self.tmp) / "модели"
+        inst, runner, _ = make(self.tmp, args(yes=True, skip_tests=True, models_dir=str(d)))
+        self.assertEqual(inst.main(), 0)
+        self.assertTrue((d / "ollama").is_dir())
+        setx = [i for i, c in enumerate(runner.calls) if c[0] == "setx"]
+        winget = [i for i, c in enumerate(runner.calls) if c[0] == "winget"]
+        self.assertEqual({runner.calls[i][1] for i in setx}, {"JURA_MODELS_DIR", "OLLAMA_MODELS"})
+        self.assertLess(max(setx), min(winget))  # Ollama ставится уже с новой папкой
+        setup = next(i for i, c in enumerate(runner.calls) if c[-1:] == ["setup"])
+        self.assertEqual(runner.envs[setup]["JURA_MODELS_DIR"], str(d))
+        inst2, _, _ = make(self.tmp + "/x", args(yes=True, skip_setup=True, skip_tests=True, models_dir="rel"))
+        self.assertEqual(inst2.main(), 1)
 
     def test_github_link_rejects_tokens_in_url(self):
         inst, runner, _ = make(self.tmp, args(yes=True, skip_setup=True, skip_tests=True, github="https://user:tok@github.com/a/b.git"),

@@ -10,6 +10,7 @@
     secret-set / secret-get / secret-list / secret-delete ИМЯ     memory-add ТЕКСТ     memory-search СЛОВА
     backup [--to ПАПКА] [--keep N]   backup-list   status   tools   policy …   run …   site …   leak-check ТЕКСТ
     model list|add|remove|discover|test …    ask [--zone O|P|S1] [--model ИМЯ] ТЕКСТ
+    talk [--typed] [--mute] — разговор голосом     chat [ТЕКСТ] — текстом     lexicon list|add|remove — личный словарь
 Без пароля:
     verify-log · peek-raw · voice-check · listen [--file WAV] [--remember] · speak ТЕКСТ · echo
 Ключи и копии:
@@ -39,6 +40,7 @@ SESSION_COMMANDS = {
     "backup": ["backup"], "backup-list": ["backup-list"], "leak-check": ["leak-check"],
     "tools": ["tools"], "policy": ["policy"], "run": ["run"], "site": ["site"],
     "model": ["model"], "ask": ["ask"],
+    "talk": ["talk"], "chat": ["chat"], "lexicon": ["lexicon"],
 }
 
 
@@ -51,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("setup")
     st.add_argument("--skip-browser", action="store_true", help="не скачивать Chromium")
     st.add_argument("--skip-voice", action="store_true", help="не скачивать модель речи и не проверять голос")
+    st.add_argument("--skip-llm", action="store_true", help="не готовить локальную языковую модель в Ollama")
     st.set_defaults(fn=cs.cmd_setup)
 
     sub.add_parser("verify-log").set_defaults(fn=cs.cmd_verify_log)

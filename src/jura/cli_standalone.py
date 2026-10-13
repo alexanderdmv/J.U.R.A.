@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import getpass
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from jura.cli_shell import ZONES, open_session
@@ -14,7 +17,7 @@ from jura.kernel.db import Database
 from jura.kernel.events import EventLog
 from jura.kernel.vault import Vault
 from jura.session import Session, default_home, peek_raw
-from jura.voice import build_voice_stack, diagnose, echo_loop, listen_once
+from jura.voice import build_voice_stack, diagnose, echo_loop, listen_once, models_dir
 
 
 def home() -> Path:
@@ -178,9 +181,82 @@ def cmd_echo(_args) -> int:
 
 
 # --------------------------------------------------------------------- setup ---
+LOCAL_MODEL = "jura-gemma3"     # имя модели J.U.R.A. в Ollama (ADR-015)
+LOCAL_BASE = "gemma3:4b"        # исходная модель: лучшая многоязычная из тех, что влезают в 4 ГБ видеопамяти
+
+
+def _ollama() -> str | None:
+    found = shutil.which("ollama")
+    candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+    return found or (str(candidate) if candidate.exists() else None)
+
+
+def _vram_mib() -> int:
+    """Объём видеопамяти NVIDIA (0 — нет карты или драйвера)."""
+    try:
+        res = subprocess.run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=20)
+        return max(int(x) for x in res.stdout.split()) if res.returncode == 0 and res.stdout.split() else 0
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return 0
+
+
+def modelfile_text(vram_mib: int) -> str:
+    """Настройки модели для Ollama: окно 2048 токенов и, если хватает видеопамяти, ВСЕ слои на видеокарте.
+    Сама Ollama на 4 ГБ кладёт половину на процессор — так ответ в 7 раз медленнее (замер на ноутбуке владельца)."""
+    lines = [f"FROM {LOCAL_BASE}", "PARAMETER num_ctx 2048"]
+    if vram_mib >= 4000:
+        lines.append("PARAMETER num_gpu 99")
+    return "\n".join(lines) + "\n"
+
+
+def _setup_local_model() -> bool:
+    exe = _ollama()
+    if exe is None:
+        print("✗ Ollama не найдена. Поставь её (install.cmd предложит) или с ollama.com, затем повтори setup.\n")
+        return False
+    print(f"   скачиваю {LOCAL_BASE} (~3,3 ГБ при первом разе; папка — переменная OLLAMA_MODELS)…")
+    if subprocess.run([exe, "pull", LOCAL_BASE]).returncode != 0:
+        print("✗ Не удалось скачать модель (нужен интернет и запущенная Ollama).\n")
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        mf = Path(tmp) / "Modelfile"
+        mf.write_text(modelfile_text(_vram_mib()), encoding="utf-8")
+        if subprocess.run([exe, "create", LOCAL_MODEL, "-f", str(mf)], capture_output=True).returncode != 0:
+            print(f"✗ Не удалось создать модель {LOCAL_MODEL} в Ollama.\n")
+            return False
+    print(f"✓ Локальная модель {LOCAL_MODEL} готова. Подключить к J.U.R.A. (один раз, в shell):\n"
+          f"     model add local-main local {LOCAL_MODEL} --context 2048 --max-output 300\n")
+    return True
+
+
+def _setup_voice_files(stack) -> bool:
+    ok = True
+    print("2. Модель распознавания речи (Parakeet v3: ru/uk/cs/en)…")
+    try:
+        took = stack.stt.load()  # type: ignore[attr-defined]
+        print(f"✓ Модель {stack.stt.name} готова ({took:.1f} с).\n")
+    except (JuraError, AttributeError) as exc:
+        print(f"✗ {exc}\n")
+        ok = False
+    voices_dir = getattr(stack.tts, "voices_dir", None)
+    if voices_dir is not None:
+        print(f"3. Голос синтеза речи {stack.tts.voice_name} → {voices_dir}…")
+        try:
+            from piper.download_voices import download_voice  # noqa: PLC0415
+            voices_dir.mkdir(parents=True, exist_ok=True)
+            download_voice(stack.tts.voice_name, voices_dir)
+            print("✓ Голос готов.\n")
+        except Exception as exc:  # сеть, имя голоса, нет пакета — setup обязан дойти до конца
+            print(f"✗ Не удалось скачать голос ({type(exc).__name__}: {str(exc)[:150]}).\n")
+            ok = False
+    return ok
+
+
 def cmd_setup(args) -> int:
-    """Первичная настройка на новом компьютере: скачивает то, что не ставится через pip (браузер, модель речи)."""
-    print("Первичная настройка (после `pip install -e .`). Нужен интернет; всё скачанное дальше работает локально.\n")
+    """Первичная настройка на новом компьютере: скачивает то, что не ставится через pip."""
+    print("Первичная настройка (после `pip install -e .`). Нужен интернет; всё скачанное дальше работает локально.\n"
+          f"Модели голоса лягут в {models_dir()} (другая папка — переменная JURA_MODELS_DIR).\n")
     ok = True
     if not args.skip_browser:
         print("1. Браузер Chromium для входа на сайты (Playwright)…")
@@ -191,16 +267,13 @@ def cmd_setup(args) -> int:
             print("✗ Не удалось установить Chromium (проверь, что pip install -e . завершился без ошибок и есть интернет).\n")
             ok = False
     if not args.skip_voice:
-        print("2. Модель распознавания речи…")
         stack = build_voice_stack()
-        try:
-            took = stack.stt.load()  # type: ignore[attr-defined]
-            print(f"✓ Модель {stack.stt.name} готова ({took:.1f} с).\n")
-        except (JuraError, AttributeError) as exc:
-            print(f"✗ {exc}\n")
-            ok = False
-        print("3. Проверка голосового контура\n")
+        ok = _setup_voice_files(stack) and ok
+        print("4. Проверка голосового контура\n")
         ok = diagnose(stack) and ok
-    print("\nГотово. Дальше: python -m jura init (если ещё не создавал хранилище), затем python -m jura shell"
+    if not args.skip_llm:
+        print("\n5. Локальная языковая модель (Ollama)…")
+        ok = _setup_local_model() and ok
+    print("\nГотово. Дальше: python -m jura init (если ещё не создавал хранилище), затем python -m jura shell → talk"
           if ok else "\nНастройка завершена с замечаниями (см. выше).")
     return 0 if ok else 2

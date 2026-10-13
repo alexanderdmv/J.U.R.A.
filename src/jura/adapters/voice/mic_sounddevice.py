@@ -1,6 +1,6 @@
 """Запись с микрофона по принципу push-to-talk (Enter — начать, Enter — закончить). Библиотека: sounddevice.
 
-Ставится отдельно: pip install -e ".[voice]". Аудио накапливается в памяти и никуда не сохраняется.
+Ставится отдельно: pip install -e .. Аудио накапливается в памяти и никуда не сохраняется.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class SoundDeviceRecorder:
         try:
             import sounddevice  # noqa: PLC0415 — необязательная зависимость
         except ImportError:
-            raise VoiceError('микрофон недоступен: не установлен sounddevice. Выполни: pip install -e ".[voice]"') from None
+            raise VoiceError('микрофон недоступен: не установлен sounddevice. Выполни: pip install -e .') from None
         except OSError:  # пакет есть, но не найдена системная библиотека звука PortAudio
             raise VoiceError("sounddevice установлен, но не найдена системная библиотека PortAudio "
                              "(в Windows она идёт внутри пакета: попробуй pip install --force-reinstall sounddevice)") from None

@@ -1,10 +1,9 @@
-"""Распознавание русской речи: GigaAM v3 (Сбер) через onnx-asr. Полностью локально, на процессоре, без PyTorch.
+"""Распознавание речи через onnx-asr. Полностью локально, на процессоре, без PyTorch (ADR-015).
 
-Ставится отдельно: pip install -e ".[voice]". При ПЕРВОМ запуске модель скачивается из интернета (несколько сотен МБ);
-дальше работает без сети. Звук никуда не отправляется.
-
-ВАЖНО: вызовы onnx_asr написаны по его документации, но с настоящей библиотекой этот файл впервые проверяется у владельца
-(в тестах она подменена). Если что-то не так — `voice-check` покажет, где.
+По умолчанию — Parakeet TDT 0.6B v3 (NVIDIA): 25 европейских языков, в том числе русский, украинский, чешский и английский;
+язык определяет сама, ставит знаки препинания. Запасной вариант только для русского — GigaAM v3 (`JURA_STT_MODEL=gigaam-v3-rnnt`).
+При ПЕРВОМ запуске модель скачивается из интернета (сотни МБ) в HF_HOME; дальше работает без сети. Звук никуда не отправляется.
+Проверено на ноутбуке владельца (i5-11300H): Parakeet int8 распознаёт быстрее реального времени в 5–10 раз.
 """
 
 from __future__ import annotations
@@ -15,11 +14,13 @@ from typing import Any
 from jura.contracts.errors import VoiceError
 from jura.contracts.voice import SAMPLE_RATE, Transcript
 
-DEFAULT_MODEL = "gigaam-v3-rnnt"  # без знаков препинания, самая низкая ошибка; "gigaam-v3-e2e-rnnt" — с пунктуацией
+DEFAULT_MODEL = "nemo-parakeet-tdt-0.6b-v3"
+DEFAULT_QUANT = "int8"  # в 4 раза меньше и быстрее на процессоре; на слух владельца разницы с полной нет
 
 
-class GigaAMStt:
-    def __init__(self, model_name: str = DEFAULT_MODEL, quantization: str | None = None, onnx_asr_module: Any = None):
+class OnnxAsrStt:
+    def __init__(self, model_name: str = DEFAULT_MODEL, quantization: str | None = DEFAULT_QUANT,
+                 onnx_asr_module: Any = None):
         self.name = model_name
         self._quant, self._mod, self._model = quantization, onnx_asr_module, None
 
@@ -32,7 +33,7 @@ class GigaAMStt:
             try:
                 import onnx_asr as mod  # noqa: PLC0415 — необязательная зависимость
             except ImportError:
-                raise VoiceError('не установлен onnx-asr. Выполни: pip install -e ".[voice]"') from None
+                raise VoiceError('не установлен onnx-asr. Выполни: pip install -e .') from None
         t0 = time.perf_counter()
         try:
             kwargs = {"quantization": self._quant} if self._quant else {}

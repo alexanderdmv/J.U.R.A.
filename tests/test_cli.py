@@ -335,24 +335,40 @@ class WorkflowTests(CliBase):
 
         def fake_run(cmd, **kw):
             calls.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return type("R", (), {"returncode": 0, "stdout": "4096\n"})()
 
         with patch("jura.cli_standalone.subprocess.run", fake_run), \
                 patch("jura.cli_standalone.build_voice_stack", return_value=healthy), \
+                patch("jura.cli_standalone._ollama", return_value="ollama"), \
                 patch("jura.voice._version", side_effect=lambda p: "1.0"):
             rc, out = run(["setup"])
         self.assertEqual(rc, 0, out)
         self.assertEqual(calls[0][1:], ["-m", "playwright", "install", "chromium"])
+        self.assertIn(["ollama", "pull", "gemma3:4b"], calls)
+        self.assertEqual(calls[-1][:3], ["ollama", "create", "jura-gemma3"])
         self.assertIn("Chromium установлен", out)
         self.assertIn("готова", out)
+        self.assertIn("model add local-main local jura-gemma3", out)
+
+    def test_local_model_goes_fully_to_the_gpu_only_when_it_fits(self):
+        from jura.cli_standalone import modelfile_text
+        self.assertIn("PARAMETER num_gpu 99", modelfile_text(4096))
+        self.assertNotIn("num_gpu", modelfile_text(2048))
+        self.assertIn("PARAMETER num_ctx 2048", modelfile_text(0))
+
+    def test_setup_without_ollama_explains_what_to_install(self):
+        with patch("jura.cli_standalone._ollama", return_value=None):
+            rc, out = run(["setup", "--skip-browser", "--skip-voice"])
+        self.assertEqual(rc, 2)
+        self.assertIn("Ollama не найдена", out)
 
     def test_setup_reports_failures_and_can_skip_parts(self):
         with patch("jura.cli_standalone.subprocess.run", lambda cmd, **kw: type("R", (), {"returncode": 1})()):
-            rc, out = run(["setup", "--skip-voice"])
+            rc, out = run(["setup", "--skip-voice", "--skip-llm"])
         self.assertEqual(rc, 2)
         self.assertIn("Не удалось установить Chromium", out)
         with patch("jura.cli_standalone.subprocess.run", side_effect=AssertionError("не должен вызываться")):
-            self.assertEqual(run(["setup", "--skip-browser", "--skip-voice"])[0], 0)
+            self.assertEqual(run(["setup", "--skip-browser", "--skip-voice", "--skip-llm"])[0], 0)
 
     # --- голос ---
     def voice_stack(self, *texts, tts=None):
