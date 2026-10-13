@@ -20,6 +20,8 @@ KEY = "sk-test-KEY-123456"
 class ModelsSessionTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
+        # addCleanup идёт в обратном порядке: папку удаляем последней, после закрытия jura.db (Windows не даёт удалить открытый файл).
+        self.addCleanup(self.dir.cleanup)
         self.home = Path(self.dir.name) / "home"
         self.cloud, self.cloud_seen = make_llm_server("anthropic", reply="от облака")
         self.local, self.local_seen = make_llm_server("openai", reply="от локальной", models=("qwen-a", "qwen-b"))
@@ -27,7 +29,6 @@ class ModelsSessionTests(unittest.TestCase):
         self.addCleanup(stop, self.local)
         self.s, _ = Session.create(self.home, PASS, kdf_n=2**10, allow_insecure_http=True)
         self.addCleanup(self.close)
-        self.addCleanup(self.dir.cleanup)
         self.local_url = base(self.local, "/v1")
         self.cloud_url = base(self.cloud)
 

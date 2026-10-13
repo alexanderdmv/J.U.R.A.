@@ -48,7 +48,7 @@ def write_manifest(root: Path, version: str = "") -> int:
     files = project_files(root)
     for rel in sorted(files):
         lines.append(f"{sha256(files[rel])}  {rel}")
-    (root / MANIFEST).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (root / MANIFEST).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")  # LF и на Windows, как в git
     return len(files)
 
 

@@ -109,11 +109,13 @@ class EncryptedStorageTests(unittest.TestCase):
         self.session.memory_add("факт")
         self.session.close()
         db = Database(self.home / "jura.db")
-        self.addCleanup(db.close)
-        log = EventLog(db)  # без шифра
-        self.assertTrue(log.verify().ok)
-        with self.assertRaises(DecryptionError):
-            log.events()
+        try:  # закрываем до tearDown: он удаляет папку, а Windows не даёт удалить открытый jura.db
+            log = EventLog(db)  # без шифра
+            self.assertTrue(log.verify().ok)
+            with self.assertRaises(DecryptionError):
+                log.events()
+        finally:
+            db.close()
 
     def test_locked_vault_blocks_reading(self):
         self.session.memory_add("факт")
