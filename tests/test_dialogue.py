@@ -161,6 +161,12 @@ class TalkLoopTests(unittest.TestCase):
             self.assertEqual(s.tts.said, ["ответ на привет", "ответ на как дела", "Окей, до связи."])
             self.assertTrue(any("модель недоступна" in line for line in lines))
 
+    def test_typing_exit_instead_of_enter_ends_the_voice_conversation(self):
+        for word in ("exit", "Стоп", "выход"):
+            s = stack("не должно прозвучать")
+            n = talk_loop(self.reply_fn, s, input_fn=lambda prompt: word, out=lambda line: None)
+            self.assertEqual((n, s.recorder.calls, s.tts.said), (0, 0, ["Окей, до связи."]))
+
     def test_typed_mode_and_mute(self):
         s = stack()
         answers = iter(["привет", "стоп"])

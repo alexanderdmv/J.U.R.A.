@@ -25,7 +25,8 @@ from jura.contracts.voice import (
 
 MIN_SECONDS = 0.3
 SILENCE_PEAK = 0.01
-STOP_WORDS = ("стоп", "хватит", "закончить", "досить", "вистачить", "stop", "enough", "konec", "dost")
+STOP_WORDS = ("стоп", "хватит", "закончить", "досить", "вистачить", "stop", "enough", "konec", "dost",
+              "exit", "quit", "выход")  # последние — чтобы выйти, набрав слово вместо Enter
 
 
 @dataclass
@@ -80,14 +81,15 @@ def read_wav(path: str) -> RecordedAudio:
 
 def listen_once(stack: VoiceStack, *, input_fn: Callable[[str], str] | None = None,
                 out: Callable[[str], None] = print, wav_path: str | None = None,
-                max_seconds: float = 30.0) -> Transcript:
+                max_seconds: float = 30.0, started: bool = False) -> Transcript:
+    """started=True — пользователь уже нажал Enter (talk спрашивает сам, чтобы можно было набрать «exit»)."""
     ask = input_fn or input  # input ищется в момент вызова (а не при импорте) — так его можно подменять в тестах
     if wav_path:
         audio = read_wav(wav_path)
     else:
         audio = stack.recorder.record(
             max_seconds=max_seconds,
-            start=lambda: ask("Нажми Enter и говори… "),
+            start=(lambda: None) if started else (lambda: ask("Нажми Enter и говори… ")),
             stop=lambda: ask("Идёт запись. Enter — закончить… "))
     if audio.seconds < MIN_SECONDS:
         raise VoiceError("слишком короткая запись — ничего не записалось")
@@ -136,14 +138,18 @@ def talk_loop(reply_fn: Callable[[str], object], stack: VoiceStack, *, input_fn:
     getattr(stack.tts, "load", lambda: None)()
     if warm_up:
         warm_up()
-    out("Готово. Говори, J.U.R.A. ответит. Для выхода скажи «стоп».\n")
+    out("Готово. Говори, J.U.R.A. ответит. Выход: скажи «стоп» или набери exit и нажми Enter.\n")
     answered = 0
     while True:
         try:
             if typed:
                 text = ask("ты> ").strip()
             else:
-                heard = listen_once(stack, input_fn=input_fn, out=out)
+                typed_word = ask("Enter — говорить, «exit» — выход… ").strip()
+                if typed_word.lower() in STOP_WORDS:
+                    say("Окей, до связи.")
+                    return answered
+                heard = listen_once(stack, input_fn=input_fn, out=out, started=True)
                 text = heard.text.strip()
                 out(f"ты: {text}" if text else "(ничего не распознано)")
         except VoiceError as exc:

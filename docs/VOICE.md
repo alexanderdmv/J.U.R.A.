@@ -19,7 +19,7 @@ python -m jura shell
 jura> model add local-main local jura-gemma3 --context 2048 --max-output 300
 jura> talk
 ```
-В `talk`: **Enter — начать говорить, Enter — закончить**. Выход: скажи «стоп», «досить», «stop» или «konec».
+В `talk`: **Enter — начать говорить, Enter — закончить**. Выход: скажи «стоп», «досить», «stop» или «konec», либо набери `exit` вместо Enter.
 `talk --typed` — реплики печатаешь, а ответ звучит голосом. `talk --mute` — без звука.
 `chat` — тот же собеседник текстом. `chat --reset` — начать разговор заново.
 
