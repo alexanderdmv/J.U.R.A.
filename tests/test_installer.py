@@ -198,6 +198,23 @@ class InstallerTests(unittest.TestCase):
         log = (Path(self.tmp) / "install.log").read_text(encoding="utf-8")
         self.assertIn("не скачалось ollama: OSError: CERTIFICATE_VERIFY_FAILED", log)
 
+    def test_failed_tests_are_retried_once_and_reported_honestly(self):
+        class FlakyOnce(FakeRunner):
+            failed = False
+            def __call__(self, cmd, **kw):
+                if "unittest" in cmd and not FlakyOnce.failed:
+                    FlakyOnce.failed = True
+                    self.calls.append([str(c) for c in cmd])
+                    return SimpleNamespace(returncode=1)
+                return super().__call__(cmd, **kw)
+        inst, runner, out = make(self.tmp, args(yes=True, skip_setup=True))
+        inst.runner = FlakyOnce(root=self.tmp)
+        self.assertEqual(inst.main(), 0)
+        self.assertEqual(sum("unittest" in c for c in inst.runner.calls), 2)
+        self.assertIn("со ВТОРОЙ попытки", "\n".join(out))
+        inst2, _, _ = make(self.tmp + "/b", args(yes=True, skip_setup=True), fail=("unittest",))
+        self.assertEqual(inst2.main(), 1)  # стабильно красные тесты — ошибка установки
+
     def test_failed_pip_stops_early_and_writes_log(self):
         inst, runner, out = make(self.tmp, args(yes=True), fail=("pip install -e",))
         self.assertEqual(inst.main(), 1)

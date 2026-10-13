@@ -378,8 +378,13 @@ class Installer:
         self.run([py, "scripts/check_files.py"])
         if self.args.skip_tests:
             return "файлы целы; тесты пропущены (--skip-tests)"
+        if self.run([py, "-m", "unittest", "discover", "-s", "tests"], check=False) == 0:
+            return "файлы целы, тесты прошли"
+        # В Windows Sandbox при нехватке памяти первый прогон дважды падал на загрузке DLL (numpy, CopyFile2),
+        # а такой же чистый прогон потом проходил целиком. Один повтор отличает такой сбой от настоящей поломки.
+        self.say("   тесты упали — повторяю один раз (вывод первой попытки выше, в журнале — оба кода)")
         self.run([py, "-m", "unittest", "discover", "-s", "tests"])
-        return "файлы целы, тесты прошли"
+        return "файлы целы; тесты прошли со ВТОРОЙ попытки — первая упала (сохрани install.log и покажи Claude)"
 
     def data(self) -> str:
         if self.args.restore:
